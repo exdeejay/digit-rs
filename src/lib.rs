@@ -1,14 +1,5 @@
-mod anim;
-mod digit;
-mod dstate;
-mod fsm;
-mod window;
-
-use digit::Digit;
-
-pub fn run() {
-	let mut digit = Digit::new();
-	loop {
-		digit.update();
-	}
-}
+pub mod anim;
+pub mod digit;
+pub mod dstate;
+pub mod fsm;
+pub mod dgtwindow;

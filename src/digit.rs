@@ -1,54 +1,122 @@
-use crate::anim::Anim;
+use crate::anim::AnimManager;
+use crate::dgtwindow::{DgtWindow, DgtWindowBuilder};
 use crate::dstate::IdleState;
 use crate::fsm::StateMachine;
-use crate::window::DgtWindow;
-use std::collections::HashMap;
 use std::mem::{self, MaybeUninit};
 use winapi::{
-	shared::windef::HMONITOR,
-	um::winuser::{GetMonitorInfoA, MONITORINFO},
+	shared::windef::POINT,
+	um::winuser::{
+		GetMonitorInfoA, MonitorFromPoint, MONITORINFO, MONITOR_DEFAULTTONULL,
+		MONITOR_DEFAULTTOPRIMARY,
+	},
 };
-use winit::platform::windows::MonitorHandleExtWindows;
-
-#[derive(PartialEq, Eq, Hash, Copy, Clone)]
-pub enum AnimType {
-	Idle,
-	Walk,
-}
 
 pub struct Digit {
-	anim_state: Option<StateMachine<Digit>>,
-	pub window: DgtWindow<AnimType>,
+	sm: Option<StateMachine<Digit>>,
+	window: DgtWindow,
+	anim_manager: AnimManager,
+}
+
+fn register_animations(anims: &mut AnimManager) {
+	anims.register("idle").import("assets/idle.png");
+	anims
+		.register("walking")
+		.width(64)
+		.height(32)
+		.frames(8)
+		.fps(12)
+		.import("assets/walking.png");
+	anims.register("ready").import("assets/ready.png");
 }
 
 impl Digit {
 	pub fn new() -> Digit {
-		let mut anims = HashMap::new();
-		anims.insert(AnimType::Idle, Anim::new("assets/idle.png", 32, 32, 1, 0));
-		anims.insert(AnimType::Walk, Anim::new("assets/walk.png", 64, 32, 4, 6));
-		let anims = anims;
+		let mut anim_manager = AnimManager::new();
+		register_animations(&mut anim_manager);
 
-		let mut window = DgtWindow::new(0, 0, anims, AnimType::Idle, 4.0);
-		window.x = 32.0;
-		window.y = match window.primary_monitor() {
-			Some(mon) => unsafe {
-				let mut mi = MaybeUninit::<MONITORINFO>::uninit().assume_init();
-				mi.cbSize = mem::size_of::<MONITORINFO>() as u32;
-				GetMonitorInfoA(mon.hmonitor() as HMONITOR, &mut mi);
-				mi.rcWork.bottom as f32 - 128.0
-			},
-			None => 0.0,
-		};
+		let window = DgtWindowBuilder::new()
+			.pos(32, get_taskbar_height())
+			.size(32, 32)
+			.scale(4.0)
+			.title("Digit")
+			.build();
+
 		let mut digit = Digit {
-			anim_state: None,
+			sm: None,
 			window,
+			anim_manager,
 		};
-		digit.anim_state = Some(StateMachine::new::<IdleState>(&digit));
+		let sm = StateMachine::new();
+		sm.init::<IdleState>(&mut digit);
+		digit.sm = Some(sm);
+		digit.window.swap_buffers();
 		digit
 	}
 
-	pub fn update(&mut self) {
-		self.anim_state.as_ref().unwrap().update(self);
-		self.window.update();
+	pub fn update(&mut self, delta: f32) {
+		if let Some(sm) = self.sm.take() {
+			sm.update(self, delta);
+			self.sm = Some(sm);
+		} else {
+			panic!("state machine gone (what the state machine doin)");
+		}
+		self.anim_manager.update(delta);
+		self.window.update(delta);
+	}
+
+	pub fn render(&self) {
+		let mut buffer = self.window.get_buffer();
+		for byte in buffer.get_mut() {
+			*byte = 0;
+		}
+		self.anim_manager.draw(&mut *buffer);
+		for pixel in buffer.get_mut().chunks_exact_mut(4) {
+			if pixel[3] == 0 {
+				pixel[0] = 0;
+				pixel[1] = 0;
+				pixel[2] = 0;
+			}
+		}
+		self.window.swap_buffers();
+	}
+
+	pub fn window(&self) -> &DgtWindow {
+		&self.window
+	}
+
+	pub fn window_mut(&mut self) -> &mut DgtWindow {
+		&mut self.window
+	}
+
+	pub fn set_anim(&self, name: &str) {
+		self.anim_manager.set_anim(name);
+	}
+
+	pub fn set_flipped(&self, flipped: bool) {
+		self.anim_manager.set_flipped(flipped);
+	}
+}
+
+pub fn get_monitorinfo(x: i32, y: i32) -> Option<MONITORINFO> {
+	unsafe {
+		let hmonitor = MonitorFromPoint(POINT { x, y }, MONITOR_DEFAULTTONULL);
+		if hmonitor.is_null() {
+			None
+		} else {
+			let mut mi = MaybeUninit::<MONITORINFO>::uninit().assume_init();
+			mi.cbSize = mem::size_of::<MONITORINFO>() as u32;
+			GetMonitorInfoA(hmonitor, &mut mi);
+			Some(mi)
+		}
+	}
+}
+
+fn get_taskbar_height() -> i32 {
+	unsafe {
+		let hmonitor = MonitorFromPoint(POINT { x: 0, y: 0 }, MONITOR_DEFAULTTOPRIMARY);
+		let mut mi = MaybeUninit::<MONITORINFO>::uninit().assume_init();
+		mi.cbSize = mem::size_of::<MONITORINFO>() as u32;
+		GetMonitorInfoA(hmonitor, &mut mi);
+		mi.rcWork.bottom - 128
 	}
 }
