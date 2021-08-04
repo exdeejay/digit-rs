@@ -1,5 +1,7 @@
-pub mod anim;
-pub mod digit;
-pub mod dstate;
-pub mod fsm;
-pub mod dgtwindow;
+mod digit;
+pub use digit::Digit;
+
+pub mod states;
+
+mod util;
+pub use util::*;
