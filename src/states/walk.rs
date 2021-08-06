@@ -7,7 +7,7 @@ pub struct WalkState {
     destination: i32,
 }
 
-const SPEED: f32 = 600.0;
+const SPEED: f32 = 400.0;
 
 impl DState<Digit> for WalkState {
     fn enter(sm: &StateMachine<Digit>, digit: &mut Digit) -> Box<dyn DState<Digit>> {
@@ -41,7 +41,7 @@ impl DState<Digit> for WalkState {
 
         digit.window_mut().x += direction * delta * SPEED;
 
-        if (self.destination as f32 - digit.window().x).signum() != direction {
+        if (self.destination as f32 - digit.window().x).signum() as i8 != direction as i8 {
             digit.window_mut().x = self.destination as f32;
             sm.transit::<IdleState>(digit)
         } else {

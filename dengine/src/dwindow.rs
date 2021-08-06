@@ -1,10 +1,8 @@
 use pixels::{Pixels, SurfaceTexture};
 use std::{
+    mem,
     ops::Deref,
-    sync::{
-        atomic::{AtomicI8, Ordering},
-        mpsc, Arc, Mutex, MutexGuard,
-    },
+    sync::{mpsc, Arc, Mutex, MutexGuard},
     thread,
 };
 use winit::{
@@ -18,10 +16,9 @@ use winit::{
 pub struct DWindow {
     pub x: f32,
     pub y: f32,
-    pub(super) scale: f32,
-    pub window: Arc<Window>,
-    pub current_buffer: Arc<AtomicI8>,
-    pub buffers: Arc<Vec<Mutex<FrameBuffer>>>,
+    scale: f32,
+    window: Arc<Window>,
+    framebuffer: Arc<FrameBuffer>,
 }
 
 impl DWindow {
@@ -40,16 +37,12 @@ impl DWindow {
         });
     }
 
-    pub fn get_buffer(&self) -> MutexGuard<'_, FrameBuffer> {
-        let idx = self.current_buffer.load(Ordering::SeqCst);
-        self.buffers[idx as usize].lock().unwrap()
+    pub fn framebuffer(&self) -> &FrameBuffer {
+        &self.framebuffer
     }
 
     pub fn swap_buffers(&self) {
-        self.current_buffer.store(
-            (self.current_buffer.load(Ordering::SeqCst) + 1) % 2,
-            Ordering::SeqCst,
-        );
+        self.framebuffer.swap_buffers();
     }
 }
 
@@ -69,43 +62,59 @@ pub struct DWindowBuilder {
     scale: f32,
 }
 
-pub struct FrameBuffer {
-    buf: Vec<u8>,
+pub struct Frame {
     width: u32,
     height: u32,
-    changed_size: bool,
+    buffer: Vec<u8>,
 }
 
-impl FrameBuffer {
-    pub fn new(width: u32, height: u32) -> FrameBuffer {
-        let mut fb = FrameBuffer {
-            buf: vec![],
-            width: 0,
-            height: 0,
-            changed_size: false,
-        };
-        fb.set_size(width, height);
-        fb.changed_size = false;
-        fb
+impl Frame {
+    fn new(width: u32, height: u32) -> Frame {
+        let mut buffer = Vec::new();
+        buffer.resize((width * height * 4) as usize, 0);
+        Frame {
+            width,
+            height,
+            buffer,
+        }
     }
 
-    pub fn get_size(&self) -> (u32, u32) {
+    pub fn size(&self) -> (u32, u32) {
         (self.width, self.height)
     }
 
     pub fn set_size(&mut self, width: u32, height: u32) {
-        self.buf.resize((width * height * 4) as usize, 0);
+        self.buffer.resize((width * height * 4) as usize, 0);
         self.width = width;
         self.height = height;
-        self.changed_size = true;
-    }
-
-    pub fn get(&self) -> &Vec<u8> {
-        &self.buf
     }
 
     pub fn get_mut(&mut self) -> &mut Vec<u8> {
-        &mut self.buf
+        &mut self.buffer
+    }
+}
+
+pub struct FrameBuffer {
+    front_buffer: Mutex<Box<Frame>>,
+    back_buffer: Mutex<Box<Frame>>,
+}
+
+impl FrameBuffer {
+    pub fn new(width: u32, height: u32) -> FrameBuffer {
+        FrameBuffer {
+            front_buffer: Mutex::new(Box::new(Frame::new(width, height))),
+            back_buffer: Mutex::new(Box::new(Frame::new(width, height))),
+        }
+    }
+
+    pub fn get_back_buffer(&self) -> MutexGuard<'_, Box<Frame>> {
+        self.back_buffer.try_lock().unwrap()
+    }
+
+    pub fn swap_buffers(&self) {
+        let mut fb = self.front_buffer.lock().unwrap();
+        let mut bb = self.back_buffer.try_lock().unwrap();
+        mem::swap(fb.as_mut(), bb.as_mut());
     }
 }
 
@@ -144,12 +153,12 @@ impl DWindowBuilder {
     }
 
     pub fn build(self) -> DWindow {
-        let scaled_width = self.width as f32 * self.scale;
-        let scaled_height = self.height as f32 * self.scale;
+        let scaled_width = (self.width as f32 * self.scale) as u32;
+        let scaled_height = (self.height as f32 * self.scale) as u32;
 
         let (tx, rx) = mpsc::channel();
         thread::spawn(move || {
-            let mut event_loop = EventLoop::<()>::new_any_thread();
+            let event_loop = EventLoop::<()>::new_any_thread();
             let window = Arc::new(
                 WindowBuilder::new()
                     .with_inner_size(PhysicalSize {
@@ -166,61 +175,66 @@ impl DWindowBuilder {
             window.set_outer_position(PhysicalPosition::new(self.x, self.y));
 
             let surf = SurfaceTexture::new(scaled_width as u32, scaled_width as u32, &*window);
-            let mut pixels = Pixels::new(self.width, self.height, surf).unwrap();
-            let buf0 = FrameBuffer::new(self.width, self.height);
-            let buf1 = FrameBuffer::new(self.width, self.height);
-
-            let current_buffer = Arc::new(AtomicI8::new(0));
-            let buffers = Arc::new(vec![Mutex::new(buf0), Mutex::new(buf1)]);
-
+            let pixels = Pixels::new(self.width, self.height, surf).unwrap();
             let dwindow = DWindow {
                 x: self.x as f32,
                 y: self.y as f32,
                 scale: self.scale,
-                window: window.clone(),
-                current_buffer: current_buffer.clone(),
-                buffers: buffers.clone(),
+                window,
+                framebuffer: Arc::new(FrameBuffer::new(self.width, self.height)),
             };
+
+            let framebuffer = dwindow.framebuffer.clone();
+            let window = dwindow.window.clone();
 
             tx.send(dwindow).unwrap();
 
-            let mut last_idx = 0;
-            let scale = self.scale;
-            let mut already_changed_size = false;
-            event_loop.run_return(move |event, _, control_flow| {
-                *control_flow = ControlFlow::Poll;
-                match event {
-                    Event::MainEventsCleared => {
-                        let buf_idx = current_buffer.load(Ordering::SeqCst);
-                        if buf_idx != last_idx {
-                            let mut buf = buffers[(buf_idx as usize + 1) % 2].lock().unwrap();
-                            if !already_changed_size {
-                                if buf.changed_size {
-                                    let scaled_width = (buf.width as f32 * scale) as u32;
-                                    let scaled_height = (buf.height as f32 * scale) as u32;
-                                    window.set_inner_size(PhysicalSize {
-                                        width: scaled_width,
-                                        height: scaled_height,
-                                    });
-                                    pixels.resize_surface(scaled_width, scaled_height);
-                                    pixels.resize_buffer(buf.width, buf.height);
-                                    buf.changed_size = false;
-                                    already_changed_size = true;
-                                }
-                            } else {
-                                buf.changed_size = false;
-                                already_changed_size = false;
-                            }
-                            pixels.get_frame().copy_from_slice(buf.get());
-                            pixels.render().unwrap();
-                            last_idx = buf_idx;
-                        }
-                    }
-                    _ => (),
-                }
-            });
+            render_loop(self.scale, &framebuffer, pixels, &window, event_loop);
         });
 
         rx.recv().unwrap()
     }
+}
+
+fn render_loop(
+    scale: f32,
+    framebuffer: &FrameBuffer,
+    pixels: Pixels,
+    window: &Window,
+    event_loop: EventLoop<()>,
+) {
+    let PhysicalSize {
+        mut width,
+        mut height,
+    } = window.inner_size();
+
+    let mut event_loop = event_loop;
+    let mut pixels = pixels;
+    event_loop.run_return(move |event, _, control_flow| {
+        *control_flow = ControlFlow::Poll;
+        match event {
+            Event::MainEventsCleared => {
+                let frame = framebuffer.front_buffer.lock().unwrap();
+
+                if frame.width != width || frame.height != height {
+                    width = frame.width;
+                    height = frame.height;
+                    let scaled_width = (frame.width as f32 * scale) as u32;
+                    let scaled_height = (frame.height as f32 * scale) as u32;
+                    window.set_inner_size(PhysicalSize {
+                        width: scaled_width,
+                        height: scaled_height,
+                    });
+                    pixels.resize_surface(scaled_width, scaled_height);
+                    pixels.resize_buffer(frame.width, frame.height);
+                }
+
+                pixels.get_frame().copy_from_slice(&*frame.buffer);
+                drop(frame);
+
+                pixels.render().unwrap();
+            }
+            _ => (),
+        }
+    });
 }

@@ -18,3 +18,4 @@ rand = "0.8.3"
 bindings = { path = "bindings" }
 windows = "0.18.0"
 winapi = { version = "0.3.9", features = ["winuser"] }
+lazy_static = "1.4.0"

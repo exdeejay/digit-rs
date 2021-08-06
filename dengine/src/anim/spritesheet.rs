@@ -1,5 +1,5 @@
 use super::{Anim, AnimHandle};
-use crate::dwindow::FrameBuffer;
+use crate::dwindow::Frame;
 use image::{io::Reader as ImageReader, Pixel, RgbaImage};
 
 pub struct AnimSpritesheet {
@@ -86,11 +86,7 @@ impl Anim for AnimSpritesheet {
         self.fps
     }
 
-    fn draw(&self, frame: u32, flipped: bool, buffer: &mut FrameBuffer) {
-        if buffer.get_size() != (self.width, self.height) {
-            buffer.set_size(self.width, self.height);
-        }
-
+    fn draw(&self, frame: u32, flipped: bool, buffer: &mut Frame) {
         for (x, y, pixel) in buffer
             .get_mut()
             .chunks_exact_mut(4)

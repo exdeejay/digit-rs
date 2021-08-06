@@ -1,6 +1,6 @@
 use crate::{
     anim::{Anim, AnimSpritesheet},
-    dwindow::FrameBuffer,
+    dwindow::Frame,
 };
 use std::{cell::RefCell, collections::HashMap, default::Default, rc::Rc};
 
@@ -110,9 +110,12 @@ impl AnimManager {
         }
     }
 
-    pub fn draw(&self, buffer: &mut FrameBuffer) {
+    pub fn draw(&self, buffer: &mut Frame) {
         let state = self.state.borrow();
         if let Some(anim) = &state.current_anim {
+            if buffer.size() != (anim.width(), anim.height()) {
+                buffer.set_size(anim.width(), anim.height());
+            }
             anim.draw(state.frame, state.flipped, buffer);
         }
     }
