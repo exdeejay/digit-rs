@@ -18,7 +18,6 @@ use std::{
 };
 
 pub struct Digit {
-    connection: TcpStream,
     sm: Option<StateMachine<Digit>>,
     window: DWindow,
     anim_manager: AnimManager,
@@ -41,7 +40,6 @@ impl Digit {
 
         let ip = "127.0.0.1:1234";
         let mut digit = Digit {
-            connection: TcpStream::connect(ip).unwrap(),
             sm: None,
             window,
             anim_manager,
