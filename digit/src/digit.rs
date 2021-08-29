@@ -9,6 +9,7 @@ use dengine::{
     fsm::StateMachine,
 };
 use std::{
+    net::TcpStream,
     ops::DerefMut,
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -17,6 +18,7 @@ use std::{
 };
 
 pub struct Digit {
+    connection: TcpStream,
     sm: Option<StateMachine<Digit>>,
     window: DWindow,
     anim_manager: AnimManager,
@@ -37,7 +39,9 @@ impl Digit {
             .title("Digit")
             .build();
 
+        let ip = "127.0.0.1:1234";
         let mut digit = Digit {
+            connection: TcpStream::connect(ip).unwrap(),
             sm: None,
             window,
             anim_manager,
@@ -47,6 +51,7 @@ impl Digit {
         let sm = StateMachine::new();
         sm.init::<IdleState>(&mut digit);
         digit.sm = Some(sm);
+
         digit.window.swap_buffers();
         digit
     }

@@ -1,0 +1,16 @@
+[package]
+name = "digit"
+version = "0.1.0"
+authors = ["DJ"]
+edition = "2018"
+
+[dependencies]
+rand = "0.8.3"
+windows = "0.18.0"
+winapi = { version = "0.3.9", features = ["winuser"] }
+lazy_static = "1.4.0"
+parking_lot = "0.11.1"
+dengine = { path = "../dengine" }
+bindings = { path = "../bindings" }
+tokio = { version = "1.10.1", features = ["full"] }
+trayicon = { version = "0.1.1", features = ["winit"] }

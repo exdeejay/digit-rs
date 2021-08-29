@@ -27,16 +27,16 @@ impl DState<Digit> for IdleState {
         if self.start.elapsed().as_millis() as f32 / 1000.0 > self.duration {
             sm.transit::<WalkState>(digit)
         } else {
-            let is_now_dancing = digit.is_dancing();
-            if is_now_dancing != self.is_dancing {
-                self.is_dancing = is_now_dancing;
-                if is_now_dancing {
-                    digit.anims().set_anim("dancing");
-                } else {
-                    digit.anims().set_anim("ready");
-                }
+        let is_now_dancing = digit.is_dancing();
+        if is_now_dancing != self.is_dancing {
+            self.is_dancing = is_now_dancing;
+            if is_now_dancing {
+                digit.anims().set_anim("dancing");
+            } else {
+                digit.anims().set_anim("ready");
             }
-            self
+        }
+        self
         }
     }
 }

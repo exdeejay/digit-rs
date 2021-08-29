@@ -1,7 +1,8 @@
 pub mod media;
 
 use media::MediaService;
-use std::sync::{Arc, Mutex, MutexGuard};
+use parking_lot::{Mutex, MutexGuard};
+use std::sync::Arc;
 
 static mut SERVICES: Option<Services> = None;
 
@@ -17,14 +18,11 @@ impl Services {
                     media_service: MediaService::new(),
                 })
             }
-            match SERVICES {
-                Some(ref services) => services,
-                None => panic!("what even"),
-            }
+            SERVICES.as_ref().unwrap()
         }
     }
 
     pub fn media() -> MutexGuard<'static, MediaService> {
-        Self::instance().media_service.lock().unwrap()
+        Self::instance().media_service.lock()
     }
 }

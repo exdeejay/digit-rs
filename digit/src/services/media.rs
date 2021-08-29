@@ -4,7 +4,8 @@ pub use bindings::Windows::Media::Control::{
     GlobalSystemMediaTransportControlsSessionManager as MediaSessionManager,
     GlobalSystemMediaTransportControlsSessionPlaybackStatus as MediaPlaybackStatus,
 };
-use std::sync::{Arc, Mutex};
+use parking_lot::Mutex;
+use std::sync::Arc;
 
 pub struct MediaService {
     _session_manager: Option<MediaSessionManager>,
@@ -26,13 +27,13 @@ impl MediaService {
             .unwrap()
             .PlaybackInfoChanged(TypedEventHandler::new(move |session, _args| {
                 if let Some(ms) = weak_media_service.upgrade() {
-                    ms.lock().unwrap().notify_all(session);
+                    ms.lock().notify_all(session);
                 }
                 Ok(())
             }))
             .unwrap();
 
-        media_service.lock().unwrap()._session_manager = Some(session_manager);
+        media_service.lock()._session_manager = Some(session_manager);
         media_service
     }
 

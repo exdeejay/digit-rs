@@ -1,10 +1,13 @@
-use pixels::{Pixels, SurfaceTexture};
+use parking_lot::{Mutex, MutexGuard};
+use pixels::{raw_window_handle::HasRawWindowHandle, Pixels, SurfaceTexture};
+use raw_window_handle::RawWindowHandle;
 use std::{
     mem,
     ops::Deref,
-    sync::{mpsc, Arc, Mutex, MutexGuard},
+    sync::{mpsc, Arc},
     thread,
 };
+use winapi::um::winuser::{SetWindowLongA, GWL_EXSTYLE, WS_EX_TOOLWINDOW, WS_EX_NOACTIVATE};
 use winit::{
     dpi::{PhysicalPosition, PhysicalSize},
     event::Event,
@@ -112,7 +115,7 @@ impl FrameBuffer {
     }
 
     pub fn swap_buffers(&self) {
-        let mut fb = self.front_buffer.lock().unwrap();
+        let mut fb = self.front_buffer.lock();
         let mut bb = self.back_buffer.try_lock().unwrap();
         mem::swap(fb.as_mut(), bb.as_mut());
     }
@@ -173,6 +176,15 @@ impl DWindowBuilder {
                     .unwrap(),
             );
             window.set_outer_position(PhysicalPosition::new(self.x, self.y));
+            if let RawWindowHandle::Windows(handle) = window.raw_window_handle() {
+                unsafe {
+                    SetWindowLongA(
+                        mem::transmute(handle.hwnd),
+                        GWL_EXSTYLE,
+                        (WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE) as i32,
+                    );
+                }
+            }
 
             let surf = SurfaceTexture::new(scaled_width as u32, scaled_width as u32, &*window);
             let pixels = Pixels::new(self.width, self.height, surf).unwrap();
@@ -214,7 +226,7 @@ fn render_loop(
         *control_flow = ControlFlow::Poll;
         match event {
             Event::MainEventsCleared => {
-                let frame = framebuffer.front_buffer.lock().unwrap();
+                let frame = framebuffer.front_buffer.lock();
 
                 if frame.width != width || frame.height != height {
                     width = frame.width;
