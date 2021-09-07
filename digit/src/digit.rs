@@ -5,16 +5,23 @@ use crate::{
 };
 use dengine::{
     anim::AnimManager,
-    dwindow::{DWindow, DWindowBuilder},
+    dwindow::{DWindow, DWindowBuilder, FrameBuffer},
     fsm::StateMachine,
 };
+use pixels::Pixels;
 use std::{
-    net::TcpStream,
     ops::DerefMut,
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc,
     },
+};
+use winit::{
+    dpi::PhysicalSize,
+    event::Event,
+    event_loop::{ControlFlow, EventLoop},
+    platform::run_return::EventLoopExtRunReturn,
+    window::Window,
 };
 
 pub struct Digit {
@@ -24,6 +31,10 @@ pub struct Digit {
     dancing: Arc<AtomicBool>,
 }
 
+enum DigitWindowEvent {
+    Click
+}
+
 impl Digit {
     pub fn new() -> Digit {
         let mut anim_manager = AnimManager::new();
@@ -31,14 +42,14 @@ impl Digit {
 
         let height = 32.0;
         let scale = 4.0;
-        let window = DWindowBuilder::new()
+        let window = DWindowBuilder::<DigitWindowEvent>::new()
             .pos(32, crate::get_taskbar_height() - (height * scale) as i32)
             .size(32, 32)
             .scale(scale)
             .title("Digit")
+            .loop_fn(render_loop)
             .build();
 
-        let ip = "127.0.0.1:1234";
         let mut digit = Digit {
             sm: None,
             window,
@@ -97,6 +108,49 @@ impl Digit {
     pub fn anims(&self) -> &AnimManager {
         &self.anim_manager
     }
+}
+
+fn render_loop(
+    scale: f32,
+    framebuffer: &FrameBuffer,
+    pixels: Pixels,
+    window: &Window,
+    event_loop: EventLoop<DigitWindowEvent>,
+) {
+    let PhysicalSize {
+        mut width,
+        mut height,
+    } = window.inner_size();
+
+    let mut event_loop = event_loop;
+    let mut pixels = pixels;
+    event_loop.run_return(move |event, _, control_flow| {
+        *control_flow = ControlFlow::Poll;
+        match event {
+            Event::MainEventsCleared => {
+                let frame = framebuffer.get_front_buffer();
+
+                if frame.width != width || frame.height != height {
+                    width = frame.width;
+                    height = frame.height;
+                    let scaled_width = (frame.width as f32 * scale) as u32;
+                    let scaled_height = (frame.height as f32 * scale) as u32;
+                    window.set_inner_size(PhysicalSize {
+                        width: scaled_width,
+                        height: scaled_height,
+                    });
+                    pixels.resize_surface(scaled_width, scaled_height);
+                    pixels.resize_buffer(frame.width, frame.height);
+                }
+
+                pixels.get_frame().copy_from_slice(&*frame.buffer);
+                drop(frame);
+
+                pixels.render().unwrap();
+            }
+            _ => (),
+        }
+    });
 }
 
 fn register_animations(anims: &mut AnimManager) {

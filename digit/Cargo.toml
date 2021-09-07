@@ -13,4 +13,5 @@ parking_lot = "0.11.1"
 dengine = { path = "../dengine" }
 bindings = { path = "../bindings" }
 tokio = { version = "1.10.1", features = ["full"] }
-trayicon = { version = "0.1.1", features = ["winit"] }
+pixels = "0.5.0"
+winit = "0.25.0"

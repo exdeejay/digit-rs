@@ -2,17 +2,17 @@ use parking_lot::{Mutex, MutexGuard};
 use pixels::{raw_window_handle::HasRawWindowHandle, Pixels, SurfaceTexture};
 use raw_window_handle::RawWindowHandle;
 use std::{
+    marker::PhantomData,
     mem,
     ops::Deref,
     sync::{mpsc, Arc},
     thread,
 };
-use winapi::um::winuser::{SetWindowLongA, GWL_EXSTYLE, WS_EX_TOOLWINDOW, WS_EX_NOACTIVATE};
+use winapi::um::winuser::{SetWindowLongA, GWL_EXSTYLE, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW};
 use winit::{
     dpi::{PhysicalPosition, PhysicalSize},
-    event::Event,
-    event_loop::{ControlFlow, EventLoop},
-    platform::{run_return::EventLoopExtRunReturn, windows::EventLoopExtWindows},
+    event_loop::EventLoop,
+    platform::windows::EventLoopExtWindows,
     window::{Window, WindowBuilder},
 };
 
@@ -25,10 +25,6 @@ pub struct DWindow {
 }
 
 impl DWindow {
-    pub fn new() -> DWindow {
-        DWindowBuilder::new().build()
-    }
-
     pub fn scale(&self) -> f32 {
         self.scale
     }
@@ -56,19 +52,10 @@ impl Deref for DWindow {
     }
 }
 
-pub struct DWindowBuilder {
-    x: i32,
-    y: i32,
-    width: u32,
-    height: u32,
-    title: String,
-    scale: f32,
-}
-
 pub struct Frame {
-    width: u32,
-    height: u32,
-    buffer: Vec<u8>,
+    pub width: u32,
+    pub height: u32,
+    pub buffer: Vec<u8>,
 }
 
 impl Frame {
@@ -114,6 +101,10 @@ impl FrameBuffer {
         self.back_buffer.try_lock().unwrap()
     }
 
+    pub fn get_front_buffer(&self) -> MutexGuard<'_, Box<Frame>> {
+        self.front_buffer.lock()
+    }
+
     pub fn swap_buffers(&self) {
         let mut fb = self.front_buffer.lock();
         let mut bb = self.back_buffer.try_lock().unwrap();
@@ -121,7 +112,24 @@ impl FrameBuffer {
     }
 }
 
-impl DWindowBuilder {
+pub struct DWindowBuilder<T>
+where
+    T: 'static + Send,
+{
+    x: i32,
+    y: i32,
+    width: u32,
+    height: u32,
+    title: String,
+    scale: f32,
+    loop_fn: Option<Box<dyn Fn(f32, &FrameBuffer, Pixels, &Window, EventLoop<T>) + 'static + Send>>,
+    event_type: PhantomData<T>,
+}
+
+impl<T> DWindowBuilder<T>
+where
+    T: 'static + Send,
+{
     pub fn new() -> Self {
         DWindowBuilder {
             x: 0,
@@ -130,6 +138,8 @@ impl DWindowBuilder {
             height: 0,
             title: String::from("Digit"),
             scale: 1.0,
+            loop_fn: None,
+            event_type: PhantomData::<T>,
         }
     }
 
@@ -155,13 +165,23 @@ impl DWindowBuilder {
         self
     }
 
-    pub fn build(self) -> DWindow {
+    pub fn loop_fn<F>(mut self, loop_fn: F) -> Self
+    where
+        F: Fn(f32, &FrameBuffer, Pixels, &Window, EventLoop<T>) + 'static + Send,
+    {
+        self.loop_fn = Some(Box::new(loop_fn));
+        self
+    }
+
+    pub fn build(mut self) -> DWindow {
         let scaled_width = (self.width as f32 * self.scale) as u32;
         let scaled_height = (self.height as f32 * self.scale) as u32;
 
+        let loop_fn = self.loop_fn.take().unwrap();
+
         let (tx, rx) = mpsc::channel();
         thread::spawn(move || {
-            let event_loop = EventLoop::<()>::new_any_thread();
+            let event_loop = EventLoop::<T>::new_any_thread();
             let window = Arc::new(
                 WindowBuilder::new()
                     .with_inner_size(PhysicalSize {
@@ -201,52 +221,9 @@ impl DWindowBuilder {
 
             tx.send(dwindow).unwrap();
 
-            render_loop(self.scale, &framebuffer, pixels, &window, event_loop);
+            loop_fn(self.scale, &framebuffer, pixels, &window, event_loop);
         });
 
         rx.recv().unwrap()
     }
-}
-
-fn render_loop(
-    scale: f32,
-    framebuffer: &FrameBuffer,
-    pixels: Pixels,
-    window: &Window,
-    event_loop: EventLoop<()>,
-) {
-    let PhysicalSize {
-        mut width,
-        mut height,
-    } = window.inner_size();
-
-    let mut event_loop = event_loop;
-    let mut pixels = pixels;
-    event_loop.run_return(move |event, _, control_flow| {
-        *control_flow = ControlFlow::Poll;
-        match event {
-            Event::MainEventsCleared => {
-                let frame = framebuffer.front_buffer.lock();
-
-                if frame.width != width || frame.height != height {
-                    width = frame.width;
-                    height = frame.height;
-                    let scaled_width = (frame.width as f32 * scale) as u32;
-                    let scaled_height = (frame.height as f32 * scale) as u32;
-                    window.set_inner_size(PhysicalSize {
-                        width: scaled_width,
-                        height: scaled_height,
-                    });
-                    pixels.resize_surface(scaled_width, scaled_height);
-                    pixels.resize_buffer(frame.width, frame.height);
-                }
-
-                pixels.get_frame().copy_from_slice(&*frame.buffer);
-                drop(frame);
-
-                pixels.render().unwrap();
-            }
-            _ => (),
-        }
-    });
 }
