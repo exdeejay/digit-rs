@@ -22,18 +22,18 @@ impl MediaService {
         let weak_media_service = Arc::downgrade(&media_service);
 
         let session_manager = MediaSessionManager::RequestAsync().unwrap().get().unwrap();
-        session_manager
-            .GetCurrentSession()
-            .unwrap()
-            .PlaybackInfoChanged(TypedEventHandler::new(move |session, _args| {
-                if let Some(ms) = weak_media_service.upgrade() {
-                    ms.lock().notify_all(session);
-                }
-                Ok(())
-            }))
-            .unwrap();
-
-        media_service.lock()._session_manager = Some(session_manager);
+        let current_session_result = session_manager.GetCurrentSession();
+        if let Ok(session) = current_session_result {
+            session
+                .PlaybackInfoChanged(TypedEventHandler::new(move |session, _args| {
+                    if let Some(ms) = weak_media_service.upgrade() {
+                        ms.lock().notify_all(session);
+                    }
+                    Ok(())
+                }))
+                .unwrap();
+            media_service.lock()._session_manager = Some(session_manager);
+        }
         media_service
     }
 
@@ -50,12 +50,12 @@ impl MediaService {
         }
     }
 
-    pub fn get_media_session(&self) -> MediaSession {
+    pub fn get_media_session(&self) -> Option<MediaSession> {
         MediaSessionManager::RequestAsync()
             .unwrap()
             .get()
             .unwrap()
             .GetCurrentSession()
-            .unwrap()
+            .ok()
     }
 }

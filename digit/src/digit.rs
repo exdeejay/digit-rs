@@ -37,11 +37,14 @@ enum DigitWindowEvent {
 
 impl Digit {
     pub fn new() -> Digit {
+        crate::set_process_dpi_aware();
+
         let mut anim_manager = AnimManager::new();
         register_animations(&mut anim_manager);
 
         let height = 32.0;
         let scale = 4.0;
+        println!("{}", crate::get_taskbar_height());
         let window = DWindowBuilder::<DigitWindowEvent>::new()
             .pos(32, crate::get_taskbar_height() - (height * scale) as i32)
             .size(32, 32)
@@ -187,6 +190,6 @@ fn register_media_callback(dancing_bool: &Arc<AtomicBool>) {
             }
         }
     };
-    callback(&Some(media_service.get_media_session()));
+    callback(&media_service.get_media_session());
     media_service.subscribe(callback);
 }
