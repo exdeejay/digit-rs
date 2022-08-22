@@ -1,18 +1,16 @@
 use std::mem::{self, MaybeUninit};
 use winapi::{
-    shared::windef::{POINT, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2},
-    um::{
-        winuser::{
-            GetMonitorInfoA, MonitorFromPoint, MONITORINFO, MONITOR_DEFAULTTONULL,
-            MONITOR_DEFAULTTOPRIMARY, SetProcessDpiAwarenessContext
-        },
+    shared::windef::{DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, POINT},
+    um::winuser::{
+        GetMonitorInfoA, MonitorFromPoint, SetProcessDpiAwarenessContext, MONITORINFO,
+        MONITOR_DEFAULTTONULL, MONITOR_DEFAULTTOPRIMARY,
     },
 };
 
 pub fn set_process_dpi_aware() {
     unsafe {
-        SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2)
-    };
+        SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+    }
 }
 
 pub fn get_monitorinfo(x: i32, y: i32) -> Option<MONITORINFO> {

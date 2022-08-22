@@ -13,12 +13,18 @@ pub struct MediaService {
 }
 
 impl MediaService {
+    /**
+     * Only `services.rs` should be able to construct services
+     * 
+     * Comes prewrapped in an ArcMutex, you're welcome :)
+     */
     pub(super) fn new() -> Arc<Mutex<MediaService>> {
         let media_service = Arc::new(Mutex::new(MediaService {
             _session_manager: None,
             callbacks: Vec::new(),
         }));
 
+        // Hang onto a weak reference 
         let weak_media_service = Arc::downgrade(&media_service);
 
         let session_manager = MediaSessionManager::RequestAsync().unwrap().get().unwrap();
